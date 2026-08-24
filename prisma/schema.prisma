@@ -1,0 +1,161 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Enums ----------
+
+enum UserRole {
+  COOPERATIVE_HEAD
+  COOPERATIVE_ASSISTANT
+}
+
+enum SeasonStatus {
+  PLANNED
+  ACTIVE
+  HARVESTED
+}
+
+enum TransactionType {
+  PURCHASE
+  USAGE
+}
+
+enum ExpenseType {
+  DIESEL
+  MAINTENANCE
+  LABOR
+  OTHER
+}
+
+// ---------- Core models ----------
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         UserRole
+  createdAt    DateTime @default(now())
+
+  inventoryTransactionsLogged InventoryTransaction[]
+  expensesLogged              Expense[]
+}
+
+model Farmer {
+  id             String   @id @default(cuid())
+  name           String
+  contactNum     String?
+  hectaresManaged Float   @default(0)
+  createdAt      DateTime @default(now())
+
+  landDivisions  LandDivision[]
+}
+
+model LandDivision {
+  id         String   @id @default(cuid())
+  hectares   Float
+  location   String?
+  farmerId   String
+  farmer     Farmer   @relation(fields: [farmerId], references: [id])
+  createdAt  DateTime @default(now())
+
+  seasons    Season[]
+
+  @@index([farmerId])
+}
+
+model FarmVariety {
+  id        String  @id @default(cuid())
+  name      String
+  pricePerKg Float
+
+  seasons   Season[]
+}
+
+model Season {
+  id             String       @id @default(cuid())
+  landDivisionId String
+  landDivision   LandDivision @relation(fields: [landDivisionId], references: [id])
+  farmVarietyId  String
+  farmVariety    FarmVariety  @relation(fields: [farmVarietyId], references: [id])
+  cycleLabel     String       // e.g. "Wet 2025", "Dry 2025" - for cross-lot grouping
+  dateStarted    DateTime
+  dateHarvested  DateTime?
+  status         SeasonStatus @default(PLANNED)
+  createdAt      DateTime     @default(now())
+
+  inventoryTransactions InventoryTransaction[]
+  expenses              Expense[]
+
+  @@index([landDivisionId])
+  @@index([cycleLabel])
+}
+
+// ---------- Inventory ----------
+
+model Category {
+  id       String    @id @default(cuid())
+  name     String    @unique // pesticides, fertilizers, machinery, miscellaneous, others
+
+  products Product[]
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  name        String
+  categoryId  String
+  category    Category @relation(fields: [categoryId], references: [id])
+  unit        String   // e.g. "kg", "liters", "sacks"
+  lowStockThreshold Float @default(0)
+  createdAt   DateTime @default(now())
+
+  transactions InventoryTransaction[]
+
+  @@index([categoryId])
+}
+
+model InventoryTransaction {
+  id              String          @id @default(cuid())
+  seasonId        String
+  season          Season          @relation(fields: [seasonId], references: [id])
+  productId       String
+  product         Product         @relation(fields: [productId], references: [id])
+  type            TransactionType
+  quantity        Float
+  transactionDate DateTime        // when it actually happened (editable)
+  loggedAt        DateTime        @default(now()) // when entered into system
+  loggedById      String
+  loggedBy        User            @relation(fields: [loggedById], references: [id])
+
+  @@index([seasonId])
+  @@index([productId])
+}
+
+// ---------- Costs ----------
+
+model Expense {
+  id           String      @id @default(cuid())
+  seasonId     String
+  season       Season      @relation(fields: [seasonId], references: [id])
+  type         ExpenseType
+  description  String?
+  amount       Float
+  expenseDate  DateTime
+  loggedAt     DateTime    @default(now())
+  loggedById   String
+  loggedBy     User        @relation(fields: [loggedById], references: [id])
+
+  @@index([seasonId])
+}
